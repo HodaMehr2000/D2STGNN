@@ -1,3 +1,6 @@
+## model.model
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -110,11 +113,38 @@ class D2STGNN(nn.Module):
         # node embeddings
         node_emb_u  = self.node_emb_u  # [N, d]
         node_emb_d  = self.node_emb_d  # [N, d]
-        # time slot embedding
-        time_in_day_feat = self.T_i_D_emb[(history_data[:, :, :, num_feat] * 288).type(torch.LongTensor)]    # [B, L, N, d]
-        day_in_week_feat = self.D_i_W_emb[(history_data[:, :, :, num_feat+1]).type(torch.LongTensor)]          # [B, L, N, d]
-        # traffic signals
-        history_data = history_data[:, :, :, :num_feat]
+        # # time slot embedding
+        # time_in_day_feat = self.T_i_D_emb[(history_data[:, :, :, num_feat] * 288).type(torch.LongTensor)]    # [B, L, N, d]
+        # day_in_week_feat = self.D_i_W_emb[(history_data[:, :, :, num_feat+1]).type(torch.LongTensor)]          # [B, L, N, d]
+        # # traffic signals
+        # history_data = history_data[:, :, :, :num_feat]
+        # تعداد ویژگی‌های ترافیکیِ واقعی
+        num_feat = self.num_feat  # از config می‌آید (مثلاً 1)
+
+        B, L, N, F = history_data.shape
+
+      # اگر کانال‌های زمانی موجود نیستند، خودمان صفر می‌سازیم
+        if F <= num_feat:
+            tid_idx = torch.zeros((B, L, N), dtype=torch.long, device=history_data.device)  # 0..287
+            diw_idx = torch.zeros((B, L, N), dtype=torch.long, device=history_data.device)  # 0..6
+        else:
+            # --- استخراج مقاوم و ایمن ---
+            # time_in_day ∈ [0,1) → ضربدر 288 → 0..287
+            tid_raw = history_data[:, :, :, num_feat] * 288.0
+            tid_idx = tid_raw.long().clamp_(0, 287)  # اگر اشتباه بود، کَلمپ
+
+            # day_in_week باید 0..6 باشد؛ اگر اشتباه است، با mod/کلَمپ ایمن کن
+            diw_raw = history_data[:, :, :, num_feat + 1]
+            diw_idx = diw_raw.long() % 7            # 0..6
+            # (اختیاری) اگر ترجیح می‌دی کلَمپ کنی:
+            # diw_idx = diw_raw.long().clamp_(0, 6)
+
+            # امبدینگ‌های زمانی
+            time_in_day_feat = self.T_i_D_emb[tid_idx]   # [B, L, N, d]
+            day_in_week_feat = self.D_i_W_emb[diw_idx]   # [B, L, N, d]
+
+            # سیگنال‌های ترافیکی واقعی را جدا کن (فقط num_feat کانال اول)
+            history_data = history_data[:, :, :, :num_feat]
 
         return history_data, node_emb_u, node_emb_d, time_in_day_feat, day_in_week_feat
 
