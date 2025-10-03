@@ -111,44 +111,52 @@ class D2STGNN(nn.Module):
         return static_graph, dynamic_graph
 
     def _prepare_inputs(self, history_data):
-        num_feat    = self._model_args['num_feat']
+        """
+        history_data: [B, L, N, F]  (F = num_feat [+ 2 time channels optionally])
+        returns:
+          history_data_trimmed [B,L,N,num_feat],
+          node_emb_u [N,d], node_emb_d [N,d],
+          time_in_day_feat [B,L,N,d], day_in_week_feat [B,L,N,d]
+        """
+        # --- resolve num_feat safely ---
+        num_feat = getattr(self, 'num_feat', None)
+        if num_feat is None:
+            if hasattr(self, '_model_args') and isinstance(getattr(self, '_model_args'), dict):
+                num_feat = int(self._model_args.get('num_feat', 1))
+            else:
+                # fallback: فرض می‌کنیم 2 کانال زمانی انتهایی هستند
+                F_in = history_data.shape[-1]
+                num_feat = max(1, F_in - 2) if F_in >= 3 else F_in
+    
         # node embeddings
-        node_emb_u  = self.node_emb_u  # [N, d]
-        node_emb_d  = self.node_emb_d  # [N, d]
-        # # time slot embedding
-        # time_in_day_feat = self.T_i_D_emb[(history_data[:, :, :, num_feat] * 288).type(torch.LongTensor)]    # [B, L, N, d]
-        # day_in_week_feat = self.D_i_W_emb[(history_data[:, :, :, num_feat+1]).type(torch.LongTensor)]          # [B, L, N, d]
-        # # traffic signals
-        # history_data = history_data[:, :, :, :num_feat]
-        # تعداد ویژگی‌های ترافیکیِ واقعی
-        num_feat = self.num_feat  # از config می‌آید (مثلاً 1)
-
+        node_emb_u = self.node_emb_u  # [N, d]
+        node_emb_d = self.node_emb_d  # [N, d]
+    
         B, L, N, F = history_data.shape
-
-      # اگر کانال‌های زمانی موجود نیستند، خودمان صفر می‌سازیم
+        device = history_data.device
+    
+        # --- build robust time indices ---
         if F <= num_feat:
-            tid_idx = torch.zeros((B, L, N), dtype=torch.long, device=history_data.device)  # 0..287
-            diw_idx = torch.zeros((B, L, N), dtype=torch.long, device=history_data.device)  # 0..6
+            # no time channels provided -> use zeros
+            tid_idx = torch.zeros((B, L, N), dtype=torch.long, device=device)      # 0..287
+            diw_idx = torch.zeros((B, L, N), dtype=torch.long, device=device)      # 0..6
         else:
-            # --- استخراج مقاوم و ایمن ---
-            # time_in_day ∈ [0,1) → ضربدر 288 → 0..287
+            # time_in_day in [0,1) -> *288 -> 0..287
             tid_raw = history_data[:, :, :, num_feat] * 288.0
-            tid_idx = tid_raw.long().clamp_(0, 287)  # اگر اشتباه بود، کَلمپ
-
-            # day_in_week باید 0..6 باشد؛ اگر اشتباه است، با mod/کلَمپ ایمن کن
+            tid_idx = tid_raw.long().clamp_(0, 287)
+            # day_in_week should be integer 0..6
             diw_raw = history_data[:, :, :, num_feat + 1]
-            diw_idx = diw_raw.long() % 7            # 0..6
-            # (اختیاری) اگر ترجیح می‌دی کلَمپ کنی:
-            # diw_idx = diw_raw.long().clamp_(0, 6)
-
-            # امبدینگ‌های زمانی
-            time_in_day_feat = self.T_i_D_emb[tid_idx]   # [B, L, N, d]
-            day_in_week_feat = self.D_i_W_emb[diw_idx]   # [B, L, N, d]
-
-            # سیگنال‌های ترافیکی واقعی را جدا کن (فقط num_feat کانال اول)
-            history_data = history_data[:, :, :, :num_feat]
-
+            diw_idx = (diw_raw.long() % 7)
+    
+        # embeddings for time features
+        time_in_day_feat = self.T_i_D_emb[tid_idx]  # [B, L, N, d]
+        day_in_week_feat = self.D_i_W_emb[diw_idx]  # [B, L, N, d]
+    
+        # keep only true traffic features
+        history_data = history_data[:, :, :, :num_feat]
+    
         return history_data, node_emb_u, node_emb_d, time_in_day_feat, day_in_week_feat
+
 
     def forward(self, history_data):
         """Feed forward of D2STGNN.
