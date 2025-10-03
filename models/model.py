@@ -119,6 +119,9 @@ class D2STGNN(nn.Module):
           time_in_day_feat [B,L,N,d], day_in_week_feat [B,L,N,d]
         """
         # --- resolve num_feat safely ---
+        if not hasattr(self, '_in_feat'):
+        # اگر سازنده ست نکرده بود، ایمن‌سازی:
+        self._in_feat = getattr(self, 'num_feat', max(1, history_data.shape[-1] - 2))
         num_feat = getattr(self, 'num_feat', None)
         if num_feat is None:
             if hasattr(self, '_model_args') and isinstance(getattr(self, '_model_args'), dict):
