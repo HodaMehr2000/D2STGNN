@@ -42,7 +42,7 @@ class DecoupleLayer(nn.Module):
         return inh_backcast_seq_res, dif_forecast_hidden, inh_forecast_hidden
 
 class D2STGNN(nn.Module):
-    def __init__(self, **model_args):
+    def __init__(self,num_feat=1, **model_args):
         super().__init__()
         # attributes
         self._in_feat       = model_args['num_feat']
