@@ -42,10 +42,12 @@ class DecoupleLayer(nn.Module):
         return inh_backcast_seq_res, dif_forecast_hidden, inh_forecast_hidden
 
 class D2STGNN(nn.Module):
-    def __init__(self,num_feat=1, **model_args):
+    def __init__(self, **model_args):
         super().__init__()
         # attributes
-        self._in_feat       = num_feat # model_args['num_feat']
+        self._model_args = dict(model_args)
+        # num_feat را یک‌بار استخراج کنیم و به‌صورت صریح نگه داریم
+        self.num_feat = int(self._model_args.get('num_feat', 1))
         self._hidden_dim    = model_args['num_hidden']
         self._node_dim      = model_args['node_hidden']
         self._forecast_dim  = 256
