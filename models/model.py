@@ -127,7 +127,7 @@ class D2STGNN(nn.Module):
         cfg.setdefault('sta_graph', True)
         self._model_args = cfg
     
-        # ---- لایهٔ تع嵌یده‌سازی شروع (برای سیگنال‌های ترافیکی) ----
+        # ---- لایهٔ تعبیه‌سازی شروع (برای سیگنال‌های ترافیکی) ----
         self.embedding = nn.Linear(self._in_feat, self._hidden_dim)
     
         # ---- امبدینگ‌های زمانی (به‌جای nn.Parameter، Embedding ایمن‌تر و کاراتر است) ----
@@ -143,7 +143,7 @@ class D2STGNN(nn.Module):
                 DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **self._model_args)
             )
     
-        # ---- سازندهٔ گراف دینامیک (در صورت نیاز) ----
+        # ---- سازنده گراف دینامیک (در صورت نیاز) ----
         if self._model_args.get('dy_graph', True):
             self.dynamic_graph_constructor = DynamicGraphConstructor(**self._model_args)
     
@@ -155,7 +155,7 @@ class D2STGNN(nn.Module):
         self.out_fc_1 = nn.Linear(self._forecast_dim, self._output_hidden)
         self.out_fc_2 = nn.Linear(self._output_hidden, self.gap)
     
-        # ---- مقداردهی اولیهٔ همهٔ وزن‌ها ----
+        # ---- مقداردهی اولیه همهٔ وزن‌ها ----
         self.reset_parameter()
 
     def reset_parameter(self):
@@ -235,8 +235,9 @@ class D2STGNN(nn.Module):
             diw_idx = (diw_raw.long() % 7)
     
         # embeddings for time features
-        time_in_day_feat = self.T_i_D_emb[tid_idx]  # [B, L, N, d]
-        day_in_week_feat = self.D_i_W_emb[diw_idx]  # [B, L, N, d]
+        time_in_day_feat = self.T_i_D_emb(tid_idx)
+        day_in_week_feat = self.D_i_W_emb(diw_idx)
+
     
         # keep only true traffic features
         history_data = history_data[:, :, :, :num_feat]
