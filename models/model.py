@@ -45,7 +45,7 @@ class D2STGNN(nn.Module):
     def __init__(self,num_feat=1, **model_args):
         super().__init__()
         # attributes
-        self._in_feat       = model_args['num_feat']
+        self._in_feat       = num_feat # model_args['num_feat']
         self._hidden_dim    = model_args['num_hidden']
         self._node_dim      = model_args['node_hidden']
         self._forecast_dim  = 256
