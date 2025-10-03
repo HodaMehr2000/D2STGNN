@@ -41,61 +41,144 @@ class DecoupleLayer(nn.Module):
         inh_backcast_seq_res, inh_forecast_hidden = self.inh_layer(dif_backcast_seq_res)         
         return inh_backcast_seq_res, dif_forecast_hidden, inh_forecast_hidden
 
+# class D2STGNN(nn.Module):
+#     def __init__(self, **model_args):
+#         super().__init__()
+#         # attributes
+#         self._model_args = dict(model_args)
+#         # num_feat را یک‌بار استخراج کنیم و به‌صورت صریح نگه داریم
+#         self.num_feat = int(self._model_args.get('num_feat', 1))
+#         self._hidden_dim    = model_args['num_hidden']
+#         self._node_dim      = model_args['node_hidden']
+#         self._forecast_dim  = 256
+#         self._output_hidden = 512
+#         self._output_dim    = model_args['seq_length']
+
+#         self._num_nodes     = model_args['num_nodes']
+#         self._k_s           = model_args['k_s']
+#         self._k_t           = model_args['k_t']
+#         self._num_layers    = 5
+
+#         model_args['use_pre']   = False
+#         model_args['dy_graph']  = True
+#         model_args['sta_graph'] = True
+
+#         self._model_args    = model_args
+
+#         # start embedding layer
+#         self.embedding      = nn.Linear(self._in_feat, self._hidden_dim)
+
+#         # time embedding
+#         self.T_i_D_emb  = nn.Parameter(torch.empty(288, model_args['time_emb_dim']))
+#         self.D_i_W_emb  = nn.Parameter(torch.empty(7, model_args['time_emb_dim']))
+
+#         # Decoupled Spatial Temporal Layer
+#         self.layers = nn.ModuleList([DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **model_args)])
+#         for _ in range(self._num_layers - 1):
+#             self.layers.append(DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **model_args))
+
+#         # dynamic and static hidden graph constructor
+#         if model_args['dy_graph']:
+#             self.dynamic_graph_constructor  = DynamicGraphConstructor(**model_args)
+        
+#         # node embeddings
+#         self.node_emb_u = nn.Parameter(torch.empty(self._num_nodes, self._node_dim))
+#         self.node_emb_d = nn.Parameter(torch.empty(self._num_nodes, self._node_dim))
+
+#         # output layer
+#         self.out_fc_1   = nn.Linear(self._forecast_dim, self._output_hidden)
+#         self.out_fc_2   = nn.Linear(self._output_hidden, model_args['gap'])
+
+#         self.reset_parameter()
+
+#     def reset_parameter(self):
+#         nn.init.xavier_uniform_(self.node_emb_u)
+#         nn.init.xavier_uniform_(self.node_emb_d)
+#         nn.init.xavier_uniform_(self.T_i_D_emb)
+#         nn.init.xavier_uniform_(self.D_i_W_emb)
+
 class D2STGNN(nn.Module):
     def __init__(self, **model_args):
         super().__init__()
-        # attributes
-        self._model_args = dict(model_args)
-        # num_feat را یک‌بار استخراج کنیم و به‌صورت صریح نگه داریم
-        self.num_feat = int(self._model_args.get('num_feat', 1))
-        self._hidden_dim    = model_args['num_hidden']
-        self._node_dim      = model_args['node_hidden']
-        self._forecast_dim  = 256
-        self._output_hidden = 512
-        self._output_dim    = model_args['seq_length']
-
-        self._num_nodes     = model_args['num_nodes']
-        self._k_s           = model_args['k_s']
-        self._k_t           = model_args['k_t']
-        self._num_layers    = 5
-
-        model_args['use_pre']   = False
-        model_args['dy_graph']  = True
-        model_args['sta_graph'] = True
-
-        self._model_args    = model_args
-
-        # start embedding layer
-        self.embedding      = nn.Linear(self._in_feat, self._hidden_dim)
-
-        # time embedding
-        self.T_i_D_emb  = nn.Parameter(torch.empty(288, model_args['time_emb_dim']))
-        self.D_i_W_emb  = nn.Parameter(torch.empty(7, model_args['time_emb_dim']))
-
-        # Decoupled Spatial Temporal Layer
-        self.layers = nn.ModuleList([DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **model_args)])
+    
+        # ---- نگه‌داشتن کانفیگ و استخراج پارامترهای کلیدی ----
+        self._model_args = dict(model_args)  # کپی تا اصل ورودی mutate نشه
+    
+        # ابعاد ورودی/مخفی
+        self.num_feat        = int(self._model_args.get('num_feat', 1))
+        self._in_feat        = self.num_feat                    # فقط سیگنال‌های ترافیکی (بدون کانال‌های زمانی)
+        self._in_feat_total  = self._in_feat + 2               # اگر جایی کلِ ویژگی‌ها لازم شد (با ۲ کانال زمانی)
+        self._hidden_dim     = int(self._model_args.get('num_hidden', 32))
+        self._node_dim       = int(self._model_args.get('node_hidden', 10))
+        self._forecast_dim   = int(self._model_args.get('forecast_dim', 256))  # اگر در YAML نیست همان 256
+        self._output_hidden  = int(self._model_args.get('output_hidden', 512)) # اگر در YAML نیست همان 512
+        self._output_dim     = int(self._model_args.get('seq_length', 12))
+        self._num_nodes      = int(self._model_args.get('num_nodes'))
+        self._k_s            = int(self._model_args.get('k_s', 2))
+        self._k_t            = int(self._model_args.get('k_t', 3))
+        self._num_layers     = int(self._model_args.get('num_layers', 5))
+        self.time_emb_dim    = int(self._model_args.get('time_emb_dim', 10))
+        self.gap             = int(self._model_args.get('gap', 3))
+    
+        # فلگ‌ها (با مقدار پیش‌فرض امن)
+        cfg = dict(self._model_args)
+        cfg.setdefault('use_pre',   False)
+        cfg.setdefault('dy_graph',  True)
+        cfg.setdefault('sta_graph', True)
+        self._model_args = cfg
+    
+        # ---- لایهٔ تع嵌یده‌سازی شروع (برای سیگنال‌های ترافیکی) ----
+        self.embedding = nn.Linear(self._in_feat, self._hidden_dim)
+    
+        # ---- امبدینگ‌های زمانی (به‌جای nn.Parameter، Embedding ایمن‌تر و کاراتر است) ----
+        self.T_i_D_emb = nn.Embedding(288, self.time_emb_dim)  # time-in-day
+        self.D_i_W_emb = nn.Embedding(7,   self.time_emb_dim)  # day-in-week
+    
+        # ---- لایه‌های Decoupled Spatial-Temporal ----
+        self.layers = nn.ModuleList([
+            DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **self._model_args)
+        ])
         for _ in range(self._num_layers - 1):
-            self.layers.append(DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **model_args))
-
-        # dynamic and static hidden graph constructor
-        if model_args['dy_graph']:
-            self.dynamic_graph_constructor  = DynamicGraphConstructor(**model_args)
-        
-        # node embeddings
+            self.layers.append(
+                DecoupleLayer(self._hidden_dim, fk_dim=self._forecast_dim, **self._model_args)
+            )
+    
+        # ---- سازندهٔ گراف دینامیک (در صورت نیاز) ----
+        if self._model_args.get('dy_graph', True):
+            self.dynamic_graph_constructor = DynamicGraphConstructor(**self._model_args)
+    
+        # ---- امبدینگ‌های نود ----
         self.node_emb_u = nn.Parameter(torch.empty(self._num_nodes, self._node_dim))
         self.node_emb_d = nn.Parameter(torch.empty(self._num_nodes, self._node_dim))
-
-        # output layer
-        self.out_fc_1   = nn.Linear(self._forecast_dim, self._output_hidden)
-        self.out_fc_2   = nn.Linear(self._output_hidden, model_args['gap'])
-
+    
+        # ---- هد خروجی ----
+        self.out_fc_1 = nn.Linear(self._forecast_dim, self._output_hidden)
+        self.out_fc_2 = nn.Linear(self._output_hidden, self.gap)
+    
+        # ---- مقداردهی اولیهٔ همهٔ وزن‌ها ----
         self.reset_parameter()
 
     def reset_parameter(self):
+        # embedding ورودی
+        nn.init.xavier_uniform_(self.embedding.weight)
+        if self.embedding.bias is not None:
+            nn.init.zeros_(self.embedding.bias)
+
+        # time embeddings
+        nn.init.xavier_uniform_(self.T_i_D_emb.weight)
+        nn.init.xavier_uniform_(self.D_i_W_emb.weight)
+
+        # node embeddings
         nn.init.xavier_uniform_(self.node_emb_u)
         nn.init.xavier_uniform_(self.node_emb_d)
-        nn.init.xavier_uniform_(self.T_i_D_emb)
-        nn.init.xavier_uniform_(self.D_i_W_emb)
+
+        # output head
+        nn.init.xavier_uniform_(self.out_fc_1.weight)
+        if self.out_fc_1.bias is not None:
+            nn.init.zeros_(self.out_fc_1.bias)
+        nn.init.xavier_uniform_(self.out_fc_2.weight)
+        if self.out_fc_2.bias is not None:
+            nn.init.zeros_(self.out_fc_2.bias)
 
     def _graph_constructor(self, **inputs):
         E_d = inputs['node_embedding_u']
