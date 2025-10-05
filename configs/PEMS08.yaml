@@ -47,6 +47,6 @@ optim_args:
   # warm up
   warm_epochs:    30                                      # epochs of warmming up
   # procedure
-  epochs:         300                                     # total epoch numbers
-  patience:       56                                     # patience for earlystopping
+  epochs:         100                                     # total epoch numbers
+  patience:       70                                     # patience for earlystopping
   seq_length:     12                                      # input & output seq length
